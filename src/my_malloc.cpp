@@ -2,32 +2,83 @@
 #include <my_malloc.h>
 #include <stdio.h>
 #include <sys/mman.h>
+#include <cmath>
+#include <pthread.h>
+#include <limits.h>
+
+// Mutexes
+pthread_mutex_t map_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t free_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // A pointer to the head of the free list.
+map_t *start = NULL;
 node_t *head = NULL;
 
-// The heap function returns the head pointer to the free list. If the heap
-// has not been allocated yet (head is NULL) it will use mmap to allocate
-// a page of memory from the OS and initialize the first free node.
 node_t *heap() {
-  if (head == NULL) {
-    // This allocates the heap and initializes the head node.
-    head = (node_t *)mmap(NULL, HEAP_SIZE, PROT_READ | PROT_WRITE,
-                          MAP_ANON | MAP_PRIVATE, -1, 0);
-    head->size = HEAP_SIZE - sizeof(node_t);
+  pthread_mutex_lock(&map_lock);
+  if (start == NULL) {
+    start = (map_t *) mmap(NULL, HEAP_SIZE, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+    start->size = HEAP_SIZE;
+    start->next = NULL;
+
+    pthread_mutex_unlock(&map_lock);
+
+    head = (node_t *) (start + 1);
+    head->size = HEAP_SIZE - sizeof(node_t) - sizeof(map_t);
     head->next = NULL;
+
+    return head;
   }
+  pthread_mutex_unlock(&map_lock);
 
   return head;
 }
 
+int map_new_pages(size_t size) {
+  int pages_to_allocate = (int) ceil((size + sizeof(map_t) + sizeof(header_t)) / 4096.0);
+  map_t *ptr = (map_t *) mmap(NULL, HEAP_SIZE * pages_to_allocate, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+
+  if (ptr == MAP_FAILED) {
+    return -1;
+  }
+
+  ptr->size = pages_to_allocate * HEAP_SIZE;
+
+  pthread_mutex_lock(&map_lock);
+  ptr->next = start;
+  start = ptr;
+  pthread_mutex_unlock(&map_lock);
+
+  node_t *free_block = (node_t *) (ptr + 1);
+  free_block->size = (HEAP_SIZE * pages_to_allocate) - sizeof(node_t) - sizeof(map_t);
+
+  pthread_mutex_lock(&free_lock);
+  free_block->next = head;
+  head = free_block;
+  pthread_mutex_unlock(&free_lock);
+
+  return 0;
+}
+
 // Reallocates the heap.
 void reset_heap() {
-  if (head != NULL) {
-    munmap(head, HEAP_SIZE);
-    head = NULL;
-    heap();
+  pthread_mutex_lock(&free_lock);
+  pthread_mutex_lock(&map_lock);
+
+  map_t *next;
+  while (start != NULL) {
+    next = start->next;
+    munmap(start, start->size);
+    start = next;
   }
+
+  start = NULL;
+  head = NULL;
+
+  pthread_mutex_unlock(&free_lock);
+  pthread_mutex_unlock(&map_lock);
+
+  heap();
 }
 
 // Returns a pointer to the head of the free list.
@@ -36,27 +87,32 @@ node_t *free_list() { return head; }
 // Calculates the amount of free memory available in the heap.
 size_t available_memory() {
   size_t n = 0;
+  pthread_mutex_lock(&free_lock);
   node_t *p = heap();
   while (p != NULL) {
     n += p->size;
     p = p->next;
   }
+  pthread_mutex_unlock(&free_lock);
   return n;
 }
 
 // Returns the number of nodes on the free list.
 int number_of_free_nodes() {
   int count = 0;
+  pthread_mutex_lock(&free_lock);
   node_t *p = heap();
   while (p != NULL) {
     count++;
     p = p->next;
   }
+  pthread_mutex_unlock(&free_lock);
   return count;
 }
 
 // Prints the free list. Useful for debugging purposes.
 void print_free_list() {
+  pthread_mutex_lock(&free_lock);
   node_t *p = heap();
   while (p != NULL) {
     printf("Free(%zd)", p->size);
@@ -66,24 +122,16 @@ void print_free_list() {
     }
   }
   printf("\n");
+  pthread_mutex_unlock(&free_lock);
 }
 
-// Finds a node on the free list that has enough available memory to
-// allocate to a calling program. This function uses the "first-fit"
-// algorithm to locate a free node.
-//
-// PARAMETERS:
-// size - the number of bytes requested to allocate
-//
-// RETURNS:
-// found - the node found on the free list with enough memory to allocate
-// previous - the previous node to the found node
-//
 bool fits_in_block(node_t *block, size_t size) {
-  return (block->size + sizeof(node_t)) >= (size + sizeof(header_t));
+  return block->size > (size + sizeof(header_t));
 }
 
 void find_free(size_t size, node_t **found, node_t **previous) {
+  int found_size = INT_MAX;
+  pthread_mutex_lock(&free_lock);
   node_t *prev = heap();
 
   if (prev == NULL) {
@@ -99,34 +147,24 @@ void find_free(size_t size, node_t **found, node_t **previous) {
 
   node_t *cur = prev->next;
   while (cur != NULL) {
-    if (fits_in_block(cur, size)) {
+    if (fits_in_block(cur, size) && cur->size < found_size) {
+      found_size = cur->size;
       *found = cur;
       *previous = prev;
-      return;
     }
 
     prev = cur;
     cur = cur->next;
   }
-
+  
+  if (found_size < INT_MAX) {
+    return;
+  }
+  
+  pthread_mutex_unlock(&free_lock);
   *found = NULL;
 }
 
-// Splits a found free node to accommodate an allocation request.
-//
-// The job of this function is to take a given free_node found from
-// `find_free` and split it according to the number of bytes to allocate.
-// In doing so, it will adjust the size and next pointer of the `free_block`
-// as well as the `previous` node to properly adjust the free list.
-//
-// PARAMETERS:
-// size - the number of bytes requested to allocate
-// previous - the previous node to the free block
-// free_block - the node on the free list to allocate from
-//
-// RETURNS:
-// allocated - an allocated block to be returned to the calling program
-//
 void split(size_t size, node_t **previous, node_t **free_block, header_t **allocated) {
   node_t *orig = *free_block;
   
@@ -140,28 +178,26 @@ void split(size_t size, node_t **previous, node_t **free_block, header_t **alloc
   } else {
     (*previous)->next = *free_block;
   }
+  pthread_mutex_unlock(&free_lock);
 
   *allocated = (header_t *) orig;
   (*allocated)->size = size;
   (*allocated)->magic = MAGIC;
 }
 
-// Returns a pointer to a region of memory having at least the request `size`
-// bytes.
-//
-// PARAMETERS:
-// size - the number of bytes requested to allocate
-//
-// RETURNS:
-// A void pointer to the region of allocated memory
-//
 void *my_malloc(size_t size) {
   node_t *found;
   node_t *previous;
   find_free(size, &found, &previous);
 
   if (found == NULL) {
-    return NULL;
+    int err = map_new_pages(size);
+
+    if (err == -1) {
+      return NULL;
+    }
+
+    find_free(size, &found, &previous);
   }
 
   header_t *allocated;
@@ -170,14 +206,7 @@ void *my_malloc(size_t size) {
   return (void *) (allocated + 1);
 }
 
-// Merges adjacent nodes on the free list to reduce external fragmentation.
-//
-// This function will only coalesce nodes starting with `free_block`. It will
-// not handle coalescing of previous nodes (we don't have previous pointers!).
-//
-// PARAMETERS:
-// free_block - the starting node on the free list to coalesce
-//
+// Free
 bool next_is_adjacent(node_t *block) {
   if (block->next == NULL) {
     return false;
@@ -194,11 +223,29 @@ void coalesce(node_t *free_block) {
   }
 }
 
-// Frees a given region of memory back to the free list.
-//
-// PARAMETERS:
-// allocated - a pointer to a region of memory previously allocated by my_malloc
-//
+node_t *insert_free_block(node_t *free_block) {
+  if (free_block < head) {
+    free_block->next = head;
+    head = free_block;
+    return head;
+  }
+
+  node_t *cur = head;
+  while (cur->next != NULL) {
+    if (cur < free_block && free_block < cur->next) {
+      free_block->next = cur->next;
+      cur->next = free_block;
+      return cur;
+    }
+
+    cur = cur->next;
+  }
+
+  free_block->next = NULL;
+  cur->next = free_block;
+  return cur;
+}
+
 void my_free(void *allocated) {
   header_t *block = ((header_t *) allocated) - 1;
   size_t size = block->size;
@@ -209,7 +256,9 @@ void my_free(void *allocated) {
 
   node_t *free_block = (node_t *) block;
   free_block->size = size + sizeof(header_t) - sizeof(node_t);
-  free_block->next = head;
-  head = free_block;
-  coalesce(head);
+
+  pthread_mutex_lock(&free_lock);
+  node_t *prev = insert_free_block(free_block);
+  coalesce(prev);
+  pthread_mutex_unlock(&free_lock);
 }

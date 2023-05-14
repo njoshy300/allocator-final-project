@@ -19,6 +19,11 @@ typedef struct __node_t {
   struct __node_t *next;  // a pointer to the next free list node
 } node_t;
 
+typedef struct __map_t {
+  size_t size;
+  struct __map_t *next;
+} map_t;
+
 // This is the primary interface.
 void *my_malloc(size_t);
 void my_free(void *);
