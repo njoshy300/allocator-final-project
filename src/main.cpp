@@ -8,7 +8,7 @@
 void *worker(void *arg) {
   int id = *((int *) arg);
 
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < 100; i++) {
     int *arr = (int *) my_malloc(150 * sizeof(int));
     printf("Thread %d allocated 600 bytes. Available memory after: %zd.\n", id, available_memory());
     print_free_list();
@@ -26,14 +26,14 @@ void *worker(void *arg) {
 }
 
 int main() {
-  int num_threads = 10;
-  int threadIDs[10];
-  pthread_t threads[num_threads];
+  int num_threads = 5;
+  int threadIDs[num_threads];
+  pthread_t threads[num_threads] = { 0 };
   int rc;
   for (int i = 0; i < num_threads; i++) {
     threadIDs[i] = i;
 		rc = pthread_create(&threads[i], NULL, worker, &threadIDs[i]);
-		assert(rc == 0);
+    assert(rc == 0);
 	}
 
   for (int i = 0; i < num_threads; i++) {
@@ -44,8 +44,6 @@ int main() {
   printf("Available memory after: %zd.\n", available_memory());
 
   reset_heap();
-
-  exit(1);
 
   void *allocated[100];
 
@@ -72,22 +70,6 @@ int main() {
   reset_heap();
 
   printf("Available memory before: %zd.\n", available_memory());
-  for (int i = 0; i < 50; i++) {
-    allocated[i] = my_malloc(100);
-  }
-  print_free_list();
-  printf("Available memory after: %zd.\n", available_memory());
-
-  printf("Available memory before: %zd.\n", available_memory());
-  for (int i = 0; i < 50; i++) {
-    my_free(allocated[i]);
-  }
-  print_free_list();
-  printf("Available memory after: %zd.\n", available_memory());
-
-  reset_heap();
-
-  printf("Available memory before: %zd.\n", available_memory());
   for (int i = 0; i < 10; i++) {
     allocated[i] = my_malloc(100);
   }
@@ -95,11 +77,27 @@ int main() {
   printf("Available memory after: %zd.\n", available_memory());
 
   printf("Available memory before: %zd.\n", available_memory());
-  for (int i = 9; i >= 0; i--) {
+  for (int i = 0; i < 10; i++) {
     my_free(allocated[i]);
   }
   print_free_list();
   printf("Available memory after: %zd.\n", available_memory());
 
-  return 0;
+  // reset_heap();
+
+  // printf("Available memory before: %zd.\n", available_memory());
+  // for (int i = 0; i < 10; i++) {
+  //   allocated[i] = my_malloc(100);
+  // }
+  // print_free_list();
+  // printf("Available memory after: %zd.\n", available_memory());
+
+  // printf("Available memory before: %zd.\n", available_memory());
+  // for (int i = 9; i >= 0; i--) {
+  //   my_free(allocated[i]);
+  // }
+  // print_free_list();
+  // printf("Available memory after: %zd.\n", available_memory());
+
+  // return 0;
 }

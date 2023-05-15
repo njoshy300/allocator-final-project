@@ -9,6 +9,7 @@
 // Mutexes
 pthread_mutex_t map_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t free_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t new_page_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // A pointer to the head of the free list.
 map_t *start = NULL;
@@ -34,6 +35,29 @@ node_t *heap() {
   return head;
 }
 
+node_t *insert_free_block(node_t *free_block) {
+  if (free_block < head) {
+    free_block->next = head;
+    head = free_block;
+    return head;
+  }
+
+  node_t *cur = head;
+  while (cur->next != NULL) {
+    if (cur < free_block && free_block < cur->next) {
+      free_block->next = cur->next;
+      cur->next = free_block;
+      return cur;
+    }
+
+    cur = cur->next;
+  }
+
+  free_block->next = NULL;
+  cur->next = free_block;
+  return cur;
+}
+
 int map_new_pages(size_t size) {
   int pages_to_allocate = (int) ceil((size + sizeof(map_t) + sizeof(header_t)) / 4096.0);
   map_t *ptr = (map_t *) mmap(NULL, HEAP_SIZE * pages_to_allocate, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
@@ -53,8 +77,7 @@ int map_new_pages(size_t size) {
   free_block->size = (HEAP_SIZE * pages_to_allocate) - sizeof(node_t) - sizeof(map_t);
 
   pthread_mutex_lock(&free_lock);
-  free_block->next = head;
-  head = free_block;
+  insert_free_block(free_block);
   pthread_mutex_unlock(&free_lock);
 
   return 0;
@@ -191,13 +214,21 @@ void *my_malloc(size_t size) {
   find_free(size, &found, &previous);
 
   if (found == NULL) {
-    int err = map_new_pages(size);
-
-    if (err == -1) {
-      return NULL;
-    }
-
+    pthread_mutex_lock(&new_page_lock);
     find_free(size, &found, &previous);
+
+    if (found == NULL) {
+      int err = map_new_pages(size);
+
+      if (err == -1) {
+        pthread_mutex_unlock(&new_page_lock);
+        return NULL;
+      }
+
+      find_free(size, &found, &previous);
+    }
+    
+    pthread_mutex_unlock(&new_page_lock);
   }
 
   header_t *allocated;
@@ -216,34 +247,15 @@ bool next_is_adjacent(node_t *block) {
   return ((char *) block) + block_size == (char *) block->next;
 }
 
-void coalesce(node_t *free_block) {
+int coalesce(node_t *free_block) {
+  int c = 0;
   while (next_is_adjacent(free_block)) {
     free_block->size += free_block->next->size + sizeof(node_t);
     free_block->next = free_block->next->next;
-  }
-}
-
-node_t *insert_free_block(node_t *free_block) {
-  if (free_block < head) {
-    free_block->next = head;
-    head = free_block;
-    return head;
+    c++;
   }
 
-  node_t *cur = head;
-  while (cur->next != NULL) {
-    if (cur < free_block && free_block < cur->next) {
-      free_block->next = cur->next;
-      cur->next = free_block;
-      return cur;
-    }
-
-    cur = cur->next;
-  }
-
-  free_block->next = NULL;
-  cur->next = free_block;
-  return cur;
+  return c;
 }
 
 void my_free(void *allocated) {
@@ -259,6 +271,8 @@ void my_free(void *allocated) {
 
   pthread_mutex_lock(&free_lock);
   node_t *prev = insert_free_block(free_block);
-  coalesce(prev);
+  if (coalesce(prev) == 0) {
+    coalesce(free_block);
+  }
   pthread_mutex_unlock(&free_lock);
 }
