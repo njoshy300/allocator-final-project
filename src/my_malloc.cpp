@@ -15,6 +15,7 @@ pthread_mutex_t new_page_lock = PTHREAD_MUTEX_INITIALIZER;
 map_t *start = NULL;
 node_t *head = NULL;
 
+// Assumes that the free_lock is already held.
 node_t *heap() {
   pthread_mutex_lock(&map_lock);
   if (start == NULL) {
@@ -165,12 +166,12 @@ void find_free(size_t size, node_t **found, node_t **previous) {
   if (fits_in_block(prev, size)) {
     *found = prev;
     *previous = NULL;
-    return;
+    found_size = prev->size;
   }
 
   node_t *cur = prev->next;
   while (cur != NULL) {
-    if (fits_in_block(cur, size) && cur->size < found_size) {
+    if (fits_in_block(cur, size) && (int) cur->size < found_size) {
       found_size = cur->size;
       *found = cur;
       *previous = prev;

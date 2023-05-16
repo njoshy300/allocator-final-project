@@ -6,7 +6,7 @@ For my final project for CS377, I extended the memory allocator we implemented i
 1. Improving `coalesce` so that all adjacent free blocks of memory will always be merged. The coalescing algorithm we implemented in project 5 will often fail to coalesce adjacent free blocks if they are not freed in the right order.
 2. Allowing new pages to be allocated when there is insufficient free memory remaining. The allocator implemented in project 5 allocated only a single page of 4096 bytes. It was unable to allocate more memory, and if all 4096 bytes were used up, or a `malloc` call was made for more than 4096 bytes, it would fail.
 3. Making the allocator thread safe. The allocator implemented in project 5 was not thread safe. Calling `malloc` or `free` in a multithreaded application would almost always lead to a segmentation fault.
-4. Changing `find_free` to use a best fit algorithm to choose a free_block, which will generally lead to less memory fragmentation.
+4. Changing `find_free` to use a best fit algorithm to choose a free block, which will generally lead to less memory fragmentation.
 
 ## Improving coalesce
 
@@ -58,6 +58,6 @@ I also added one more mutex, the new\_page\_lock. This was to cover an edge case
 
 ## Best fit allocation
 
-I changed the `find_free` method to use the best fit method of find free blocks. The allocator implemented in project 5 used the first fit approach, which finds the first free block that can fit the requested size, regardless of that free blocks size. The best fit approach will instead search every free block and find the one that most closely matches the requested size. This approach has more overhead, since every free block will have to be checked even if the first one would have worked, but generally can lead to less fragmentation of memory, meaning that the allocated memory will be utilized more efficiently.
+I changed the `find_free` method to use the best fit method of find free blocks. The allocator implemented in project 5 used the first fit approach, which finds the first free block that can fit the requested size, regardless of that free blocks size. The best fit approach will instead search every free block and find the one that most closely matches the requested size. This approach has more overhead, since every free block will have to be checked even if the first one would have worked, but generally leads to less fragmentation of memory, meaning that the allocated memory will be utilized more efficiently.
 
 I implemented this method by creating a variable, found\_size, at the start of the `find_free` method and setting it to `INT_MAX`. Then, when a suitable free block was found, it was only used if its size was less than found\_size. Then, instead of returning immediately, I continued searching the free list and only returned once no more free blocks were available. This meant that the free block with the smallest size that worked was selected, which is a best fit.
