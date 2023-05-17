@@ -11,7 +11,6 @@ void *worker(void *arg) {
   for (int i = 0; i < 100; i++) {
     int *arr = (int *) my_malloc(150 * sizeof(int));
     printf("Thread %d allocated 600 bytes. Available memory after: %zd.\n", id, available_memory());
-    print_free_list();
 
     for (int j = 0; j < 150; j++) {
       arr[j] = j * j;
@@ -19,16 +18,15 @@ void *worker(void *arg) {
 
     my_free(arr);
     printf("Thread %d freed 600 bytes. Available memory after: %zd.\n", id, available_memory());
-    print_free_list();
   }
 
   return NULL;
 }
 
 int main() {
-  int num_threads = 5;
+  int num_threads = 20;
   int threadIDs[num_threads];
-  pthread_t threads[num_threads] = { 0 };
+  pthread_t threads[num_threads];
   int rc;
   for (int i = 0; i < num_threads; i++) {
     threadIDs[i] = i;
@@ -44,6 +42,7 @@ int main() {
   printf("Available memory after: %zd.\n", available_memory());
 
   reset_heap();
+  exit(1);
 
   void *allocated[100];
 

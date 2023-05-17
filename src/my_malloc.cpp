@@ -248,15 +248,11 @@ bool next_is_adjacent(node_t *block) {
   return ((char *) block) + block_size == (char *) block->next;
 }
 
-int coalesce(node_t *free_block) {
-  int c = 0;
+void coalesce(node_t *free_block) {
   while (next_is_adjacent(free_block)) {
     free_block->size += free_block->next->size + sizeof(node_t);
     free_block->next = free_block->next->next;
-    c++;
   }
-
-  return c;
 }
 
 void my_free(void *allocated) {
@@ -272,8 +268,7 @@ void my_free(void *allocated) {
 
   pthread_mutex_lock(&free_lock);
   node_t *prev = insert_free_block(free_block);
-  if (coalesce(prev) == 0) {
-    coalesce(free_block);
-  }
+  coalesce(free_block);
+  coalesce(prev);
   pthread_mutex_unlock(&free_lock);
 }

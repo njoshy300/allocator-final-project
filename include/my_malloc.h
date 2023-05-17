@@ -36,6 +36,6 @@ void print_free_list();
 void find_free(size_t size, node_t **found, node_t **previous);
 void split(size_t size, node_t **previous, node_t **free_block,
            header_t **allocated);
-int coalesce(node_t *free_block);
+void coalesce(node_t *free_block);
 
 #endif

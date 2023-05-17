@@ -61,3 +61,7 @@ I also added one more mutex, the new\_page\_lock. This was to cover an edge case
 I changed the `find_free` method to use the best fit method of find free blocks. The allocator implemented in project 5 used the first fit approach, which finds the first free block that can fit the requested size, regardless of that free blocks size. The best fit approach will instead search every free block and find the one that most closely matches the requested size. This approach has more overhead, since every free block will have to be checked even if the first one would have worked, but generally leads to less fragmentation of memory, meaning that the allocated memory will be utilized more efficiently.
 
 I implemented this method by creating a variable, found\_size, at the start of the `find_free` method and setting it to `INT_MAX`. Then, when a suitable free block was found, it was only used if its size was less than found\_size. Then, instead of returning immediately, I continued searching the free list and only returned once no more free blocks were available. This meant that the free block with the smallest size that worked was selected, which is a best fit.
+
+## Video
+
+![Final Project Video](https://www.youtube.com/watch?v=g74KzWQnrWM)
