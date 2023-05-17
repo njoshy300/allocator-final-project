@@ -64,6 +64,4 @@ I implemented this method by creating a variable, found\_size, at the start of t
 
 ## Video
 
-[![Final Video]
-(https://www.youtube.com/img/desktop/yt_1200.png)]
-(https://www.youtube.com/watch?v=g74KzWQnrWM)
+[![Final Video](https://www.youtube.com/img/desktop/yt_1200.png)](https://www.youtube.com/watch?v=g74KzWQnrWM)
